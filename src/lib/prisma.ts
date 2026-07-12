@@ -18,9 +18,9 @@ const globalForPrisma = globalThis as unknown as {
 
 const pool = new Pool({
   connectionString,
-  max: 10,
-  idleTimeoutMillis: 20_000,
-  connectionTimeoutMillis: 10_000,
+  max: 2, // Low max connection limit per worker to prevent connection exhaustion during static generation
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 30_000,
 });
 const adapter = new PrismaPg(pool);
 
