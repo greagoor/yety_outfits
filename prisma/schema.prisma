@@ -1,0 +1,139 @@
+// ============================================================
+// Couple Style Universe — Prisma Schema
+// Production-grade fashion archive database
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+  output          = "../generated/client"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// ============================================================
+// STYLE WORLDS — Top-level fashion universes
+// ============================================================
+model StyleWorld {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.Text
+  slug        String   @unique @db.Text
+  tagline     String?  @db.Text
+  core_energy String?  @db.Text
+  description String?  @db.Text
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  substyles Substyle[]
+
+  @@index([slug])
+  @@index([created_at])
+  @@map("style_worlds")
+}
+
+// ============================================================
+// SUBSTYLES — Subcategories inside Style Worlds
+// ============================================================
+model Substyle {
+  id             String   @id @default(uuid()) @db.Uuid
+  style_world_id String   @db.Uuid
+  name           String   @db.Text
+  slug           String   @unique @db.Text
+  tagline        String?  @db.Text
+  description    String?  @db.Text
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  style_world StyleWorld @relation(fields: [style_world_id], references: [id], onDelete: Cascade)
+  outfits     Outfit[]
+
+  @@index([style_world_id])
+  @@index([slug])
+  @@index([created_at])
+  @@map("substyles")
+}
+
+// ============================================================
+// OUTFITS — Core fashion entry table
+// ============================================================
+model Outfit {
+  id           String   @id @default(uuid()) @db.Uuid
+  substyle_id  String   @db.Uuid
+
+  title        String   @db.Text
+  one_liner    String?  @db.Text
+  overall_vibe String?  @db.Text
+
+  aesthetic_keywords String[] @db.Text
+
+  is_tried    Boolean @default(false)
+  is_favorite Boolean @default(false)
+
+  notes        String? @db.Text
+
+  // JSONB — deeply structured outfit composition
+  outfit_details Json @db.JsonB
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  substyle        Substyle             @relation(fields: [substyle_id], references: [id], onDelete: Cascade)
+  images          OutfitImage[]
+
+  @@index([substyle_id])
+  @@index([is_tried])
+  @@index([is_favorite])
+  @@index([aesthetic_keywords])
+  @@index([overall_vibe])
+  @@index([created_at])
+  @@map("outfits")
+}
+
+// ============================================================
+// OUTFIT IMAGES — Visual archive for outfits
+// ============================================================
+model OutfitImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  outfit_id    String   @db.Uuid
+  image_url    String   @db.Text
+  storage_path String   @db.Text
+  caption      String?  @db.Text
+  is_primary   Boolean  @default(false)
+  uploaded_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  outfit Outfit @relation(fields: [outfit_id], references: [id], onDelete: Cascade)
+
+  @@index([outfit_id])
+  @@index([is_primary])
+  @@map("outfit_images")
+}
+
+// ============================================================
+// APP THEMES — Global Visual Identity System
+// ============================================================
+model AppTheme {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @db.Text
+  is_default       Boolean  @default(false)
+  primary_color    String   @db.Text
+  secondary_color  String   @db.Text
+  accent_color     String   @db.Text
+  background_color String   @db.Text
+  surface_color    String   @db.Text
+  text_primary     String   @db.Text
+  text_secondary   String   @db.Text
+  border_color     String   @db.Text
+  gradient_start   String   @db.Text
+  gradient_end     String   @db.Text
+
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([is_default])
+  @@map("app_themes")
+}
