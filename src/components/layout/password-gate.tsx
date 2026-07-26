@@ -1,38 +1,47 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const CORRECT    = process.env.NEXT_PUBLIC_APP_PASSWORD ?? "yetyshanky";
-const STORAGE_KEY = "csu_auth_token";
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes in ms
 
 export function PasswordGate({ children }: { children: React.ReactNode }) {
-  const [status, setStatus]   = useState<"loading" | "locked" | "unlocking" | "open">("loading");
+  const [status, setStatus]   = useState<"locked" | "unlocking" | "open">("locked");
   const [password, setPassword] = useState("");
   const [shake, setShake]     = useState(false);
   const [focused, setFocused] = useState(false);
+  // Once true, children stay in the DOM even when re-locked (preserves app state).
+  const [hasBeenOpen, setHasBeenOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Clear any legacy storage from previous implementation so returning
+  // users aren't auto-unlocked.
   useEffect(() => {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const ts = parseInt(raw, 10);
-      const alive = !isNaN(ts) && Date.now() - ts < SESSION_TTL;
-      setStatus(alive ? "open" : "locked");
-      if (!alive) sessionStorage.removeItem(STORAGE_KEY);
-    } else {
-      setStatus("locked");
-    }
-    // Also clear any legacy localStorage entry so returning users aren't stuck "open"
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem("csu_auth_token");
+      sessionStorage.removeItem("csu_auth_token");
+    } catch {/* SSR or restricted context */}
   }, []);
+
+  // Start / restart the session timeout whenever we transition to "open".
+  useEffect(() => {
+    if (status === "open") {
+      setHasBeenOpen(true);
+      // Clear any existing timer before setting a new one.
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setStatus("locked"), SESSION_TTL);
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [status]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === CORRECT) {
       setStatus("unlocking");
       setTimeout(() => {
-        sessionStorage.setItem(STORAGE_KEY, Date.now().toString());
         setStatus("open");
       }, 1400);
     } else {
@@ -42,19 +51,15 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // SSR / hydration guard — render nothing until client knows auth state.
-  // This prevents any flash of protected content or gate before localStorage is read.
-  if (status === "loading") return null;
-
   return (
     <>
       {/*
-       * Protected content — rendered only once the unlock animation has started.
-       * The gate overlay (z-[200]) sits on top while "unlocking", so content
-       * is in the DOM but completely hidden behind the opaque gate. Once the gate
-       * exits, the content is revealed.
+       * Protected content — once shown for the first time, children stay
+       * mounted so that app state (scroll position, form data, navigation)
+       * is preserved when the gate reappears after a timeout.
+       * The gate overlay (z-[200]) fully covers the viewport when locked.
        */}
-      {(status === "unlocking" || status === "open") && (
+      {(hasBeenOpen || status === "unlocking" || status === "open") && (
         <>{children}</>
       )}
 
