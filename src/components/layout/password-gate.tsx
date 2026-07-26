@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const CORRECT    = process.env.NEXT_PUBLIC_APP_PASSWORD ?? "yetyshanky";
 const STORAGE_KEY = "csu_auth_token";
+const SESSION_TTL = 30 * 60 * 1000; // 30 minutes in ms
 
 export function PasswordGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus]   = useState<"loading" | "locked" | "unlocking" | "open">("loading");
@@ -13,8 +14,17 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
   const [focused, setFocused] = useState(false);
 
   useEffect(() => {
-    const auth = localStorage.getItem(STORAGE_KEY);
-    setStatus(auth === "unlocked" ? "open" : "locked");
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const ts = parseInt(raw, 10);
+      const alive = !isNaN(ts) && Date.now() - ts < SESSION_TTL;
+      setStatus(alive ? "open" : "locked");
+      if (!alive) sessionStorage.removeItem(STORAGE_KEY);
+    } else {
+      setStatus("locked");
+    }
+    // Also clear any legacy localStorage entry so returning users aren't stuck "open"
+    localStorage.removeItem(STORAGE_KEY);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -22,7 +32,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     if (password === CORRECT) {
       setStatus("unlocking");
       setTimeout(() => {
-        localStorage.setItem(STORAGE_KEY, "unlocked");
+        sessionStorage.setItem(STORAGE_KEY, Date.now().toString());
         setStatus("open");
       }, 1400);
     } else {
