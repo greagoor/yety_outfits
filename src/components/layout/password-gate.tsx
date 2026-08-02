@@ -3,11 +3,27 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const CORRECT    = process.env.NEXT_PUBLIC_APP_PASSWORD ?? "yetyshanky";
+const CORRECT     = process.env.NEXT_PUBLIC_APP_PASSWORD ?? "yetyshanky";
+const SESSION_KEY = "csu_session_ts";
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes in ms
 
+/**
+ * Checks sessionStorage for a valid (non-expired) unlock timestamp.
+ * Returns the remaining TTL in ms if still alive, or -1 if expired / missing.
+ */
+function getSessionRemaining(): number {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return -1;
+    const elapsed = Date.now() - parseInt(raw, 10);
+    return elapsed < SESSION_TTL ? SESSION_TTL - elapsed : -1;
+  } catch {
+    return -1;
+  }
+}
+
 export function PasswordGate({ children }: { children: React.ReactNode }) {
-  const [status, setStatus]   = useState<"locked" | "unlocking" | "open">("locked");
+  const [status, setStatus]   = useState<"loading" | "locked" | "unlocking" | "open">("loading");
   const [password, setPassword] = useState("");
   const [shake, setShake]     = useState(false);
   const [focused, setFocused] = useState(false);
@@ -15,22 +31,41 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
   const [hasBeenOpen, setHasBeenOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clear any legacy storage from previous implementation so returning
-  // users aren't auto-unlocked.
+  // On mount: check if there's a valid session from a previous in-tab navigation.
+  // sessionStorage is per-tab, so a new tab / new browser window always starts fresh.
   useEffect(() => {
-    try {
-      localStorage.removeItem("csu_auth_token");
-      sessionStorage.removeItem("csu_auth_token");
-    } catch {/* SSR or restricted context */}
+    // Clear legacy localStorage entries from older implementations.
+    try { localStorage.removeItem("csu_auth_token"); } catch {/* */}
+
+    const remaining = getSessionRemaining();
+    if (remaining > 0) {
+      // Still within the session window — skip the gate.
+      setHasBeenOpen(true);
+      setStatus("open");
+    } else {
+      // Expired or missing — require password.
+      try { sessionStorage.removeItem(SESSION_KEY); } catch {/* */}
+      setStatus("locked");
+    }
   }, []);
 
   // Start / restart the session timeout whenever we transition to "open".
   useEffect(() => {
     if (status === "open") {
       setHasBeenOpen(true);
-      // Clear any existing timer before setting a new one.
+
+      // Write / refresh the session timestamp.
+      try { sessionStorage.setItem(SESSION_KEY, Date.now().toString()); } catch {/* */}
+
+      // Schedule auto-lock for the remaining TTL.
+      const remaining = getSessionRemaining();
+      const delay = remaining > 0 ? remaining : SESSION_TTL;
+
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setStatus("locked"), SESSION_TTL);
+      timerRef.current = setTimeout(() => {
+        try { sessionStorage.removeItem(SESSION_KEY); } catch {/* */}
+        setStatus("locked");
+      }, delay);
     }
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -50,6 +85,9 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
       setTimeout(() => setShake(false), 600);
     }
   };
+
+  // SSR / hydration guard — render nothing until client knows auth state.
+  if (status === "loading") return null;
 
   return (
     <>
